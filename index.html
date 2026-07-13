@@ -139,12 +139,18 @@
 <script src="https://unpkg.com/page-flip@2.0.7/dist/js/page-flip.browser.js"></script>
 <script>
 (async function () {
-  // ======= CHANGE THIS if your PDF has a different name =======
-  const PDF_URL = "magazine.pdf";
-  // =============================================================
+  // ============================================================
+  // Which PDF to open:
+  //   yoursite/                       -> opens magazine.pdf
+  //   yoursite/?pdf=magazine2.pdf     -> opens magazine2.pdf
+  //   yoursite/?pdf=any-name.pdf      -> opens that file
+  // ============================================================
+  const DEFAULT_PDF = "magazine.pdf";
+  let PDF_URL = new URLSearchParams(location.search).get("pdf") || DEFAULT_PDF;
+  // Safety: only allow simple .pdf filenames from this same site
+  if (!/^[\w\-. ]+\.pdf$/i.test(PDF_URL)) PDF_URL = DEFAULT_PDF;
 
   const loader   = document.getElementById("loader");
-  const stage    = document.getElementById("stage");
   const toolbar  = document.getElementById("toolbar");
   const pageInfo = document.getElementById("pageInfo");
 
