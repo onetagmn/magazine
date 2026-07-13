@@ -66,7 +66,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 22px;
+    gap: 18px;
     background: rgba(5, 14, 27, .65);
     backdrop-filter: blur(8px);
     border-top: 1px solid rgba(247,168,27,.25);
@@ -83,6 +83,10 @@
     cursor: pointer;
     transition: background .2s, transform .15s;
     font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
   }
   .tb-btn:hover { background: rgba(247,168,27,.15); }
   .tb-btn:active { transform: scale(.92); }
@@ -91,17 +95,19 @@
   #pageInfo {
     color: var(--text-dim);
     font-size: 14px;
-    min-width: 90px;
+    min-width: 76px;
     text-align: center;
     letter-spacing: .06em;
     font-variant-numeric: tabular-nums;
   }
 
-  #fsBtn { font-size: 15px; }
+  #fsBtn, #dlBtn, #loopBtn { font-size: 16px; }
 
   @media (max-width: 600px) {
-    #stage { padding: 10px; inset: 0 0 58px 0; }
-    #toolbar { height: 58px; gap: 14px; }
+    #stage { padding: 8px; inset: 0 0 58px 0; }
+    #toolbar { height: 58px; gap: 10px; }
+    .tb-btn { width: 38px; height: 38px; }
+    #pageInfo { min-width: 60px; font-size: 13px; }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -121,9 +127,11 @@
 </div>
 
 <div id="toolbar" hidden>
+  <button class="tb-btn" id="loopBtn" aria-label="Back to cover" title="Back to cover">↺</button>
   <button class="tb-btn" id="prevBtn" aria-label="Previous page">‹</button>
   <div id="pageInfo">– / –</div>
   <button class="tb-btn" id="nextBtn" aria-label="Next page">›</button>
+  <a class="tb-btn" id="dlBtn" aria-label="Download PDF" title="Download PDF" download>⬇</a>
   <button class="tb-btn" id="fsBtn" aria-label="Fullscreen" title="Fullscreen">⛶</button>
 </div>
 
@@ -136,9 +144,14 @@
   // =============================================================
 
   const loader   = document.getElementById("loader");
-  const bookEl   = document.getElementById("book");
+  const stage    = document.getElementById("stage");
   const toolbar  = document.getElementById("toolbar");
   const pageInfo = document.getElementById("pageInfo");
+
+  // Download button points straight at the PDF file
+  const dlBtn = document.getElementById("dlBtn");
+  dlBtn.href = PDF_URL;
+  dlBtn.setAttribute("download", PDF_URL.split("/").pop());
 
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
@@ -165,44 +178,73 @@
         "Loading page " + i + " / " + pdf.numPages + " …";
     }
 
-    // Fit the book to the window
-    const maxH = window.innerHeight - 64 - 48;
-    const maxW = window.innerWidth - 48;
-    let h = Math.min(maxH, 900);
-    let w = h * (pageW / pageH);
-    if (w * 2 > maxW) {           // two pages side by side must fit
-      w = Math.min(w, maxW / 2);
-      h = w * (pageH / pageW);
+    let pageFlip = null;
+    let currentIndex = 0;
+
+    function fitSize() {
+      const toolbarH = window.innerWidth <= 600 ? 58 : 64;
+      const pad = window.innerWidth <= 600 ? 16 : 48;
+      const maxH = window.innerHeight - toolbarH - pad;
+      const maxW = window.innerWidth - pad;
+      let h = maxH;
+      let w = h * (pageW / pageH);
+      // In landscape/desktop two pages sit side by side and must fit
+      const portrait = window.innerWidth < window.innerHeight || window.innerWidth <= 600;
+      const totalW = portrait ? w : w * 2;
+      if (totalW > maxW) {
+        w = portrait ? maxW : maxW / 2;
+        h = w * (pageH / pageW);
+      }
+      return { w: Math.round(w), h: Math.round(h) };
     }
 
-    const pageFlip = new St.PageFlip(bookEl, {
-      width: Math.round(w),
-      height: Math.round(h),
-      size: "fixed",
-      showCover: true,            // first page displayed alone, like a real cover
-      usePortrait: true,          // single-page view on phones
-      maxShadowOpacity: 0.4,
-      mobileScrollSupport: false
-    });
+    function buildBook(startIndex) {
+      const old = document.getElementById("book");
+      if (pageFlip) { try { pageFlip.destroy(); } catch (e) {} }
+      const fresh = document.createElement("div");
+      fresh.id = "book";
+      old.replaceWith(fresh);
 
-    pageFlip.loadFromImages(images);
+      const { w, h } = fitSize();
+      pageFlip = new St.PageFlip(fresh, {
+        width: w,
+        height: h,
+        size: "fixed",
+        showCover: true,            // first page displayed alone, like a real cover
+        usePortrait: true,          // single-page view on phones
+        maxShadowOpacity: 0.4,
+        mobileScrollSupport: false,
+        startPage: startIndex
+      });
+      pageFlip.loadFromImages(images);
+      pageFlip.on("flip", (e) => {
+        currentIndex = e.data;
+        update();
+      });
+      update();
+    }
 
+    const update = () => {
+      pageInfo.textContent = (currentIndex + 1) + " / " + pdf.numPages;
+    };
+
+    buildBook(0);
     loader.remove();
     toolbar.hidden = false;
 
-    const update = () => {
-      pageInfo.textContent =
-        (pageFlip.getCurrentPageIndex() + 1) + " / " + pdf.numPages;
-    };
-    update();
-    pageFlip.on("flip", update);
-
+    // --- Buttons ---
     document.getElementById("prevBtn").onclick = () => pageFlip.flipPrev();
     document.getElementById("nextBtn").onclick = () => pageFlip.flipNext();
+
+    // Loop: go back to the cover (page 1)
+    document.getElementById("loopBtn").onclick = () => {
+      pageFlip.flip(0);
+    };
 
     document.addEventListener("keydown", (e) => {
       if (e.key === "ArrowLeft")  pageFlip.flipPrev();
       if (e.key === "ArrowRight") pageFlip.flipNext();
+      if (e.key === "Home")       pageFlip.flip(0);
     });
 
     document.getElementById("fsBtn").onclick = () => {
@@ -212,6 +254,17 @@
         document.exitFullscreen();
       }
     };
+
+    // Re-fit the book when screen changes: fullscreen on/off,
+    // phone rotation, window resize
+    let resizeTimer = null;
+    function refit() {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => buildBook(currentIndex), 250);
+    }
+    window.addEventListener("resize", refit);
+    document.addEventListener("fullscreenchange", refit);
+    window.addEventListener("orientationchange", refit);
 
   } catch (err) {
     loader.querySelector(".ring").style.display = "none";
